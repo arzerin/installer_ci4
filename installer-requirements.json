@@ -1,0 +1,8 @@
+{
+  "tasks": [
+    {
+      "name": "Install Composer Dependencies",
+      "command": "composer install --no-interaction --prefer-dist"
+    }
+  ]
+}

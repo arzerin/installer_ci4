@@ -10,6 +10,9 @@ use Throwable;
 class Installer extends BaseController
 {
     private const LOCK_FILE = WRITEPATH . 'installer/installed.lock';
+    private const REQUIREMENTS_FILE = ROOTPATH . 'requirements.txt';
+    private const REQUIREMENTS_LOG_FILE = WRITEPATH . 'installer/requirements.log';
+    private const REQUIREMENTS_DONE_FILE = WRITEPATH . 'installer/requirements.done';
 
     public function index()
     {
@@ -264,7 +267,29 @@ class Installer extends BaseController
             return redirect()->to('/install');
         }
 
-        return view('installer/complete');
+        $error      = null;
+        $success    = false;
+        $output     = null;
+        $hasRun     = is_file(self::REQUIREMENTS_DONE_FILE);
+
+        if ($this->request->getMethod(true) === 'POST') {
+            [$success, $output, $error] = $this->runRequirementsTasks();
+            $hasRun = $success || $hasRun;
+        } elseif (! $hasRun) {
+            [$success, $output, $error] = $this->runRequirementsTasks();
+            $hasRun = $success || $hasRun;
+        }
+
+        if ($output === null && is_file(self::REQUIREMENTS_LOG_FILE)) {
+            $output = (string) file_get_contents(self::REQUIREMENTS_LOG_FILE);
+        }
+
+        return view('installer/complete', [
+            'success' => $success,
+            'error'   => $error,
+            'output'  => $output,
+            'hasRun'  => $hasRun,
+        ]);
     }
 
     private function isInstalled(): bool
@@ -470,5 +495,77 @@ class Installer extends BaseController
         if (file_put_contents(self::LOCK_FILE, date(DATE_ATOM)) === false) {
             throw new \RuntimeException('Failed to write installer lock file.');
         }
+    }
+
+    private function runRequirementsTasks(): array
+    {
+        $commands = $this->loadRequirementCommands();
+        if ($commands === []) {
+            return [false, null, 'No installer requirement tasks found.'];
+        }
+
+        $directory = dirname(self::LOCK_FILE);
+        if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
+            return [false, null, 'Failed to create installer runtime directory.'];
+        }
+
+        $fullOutput = '';
+        foreach ($commands as $index => $command) {
+            $name = 'Task ' . ($index + 1);
+
+            if (! $this->isAllowedRequirementCommand($command)) {
+                return [false, null, 'Blocked unsafe requirement command: ' . $command];
+            }
+
+            $fullOutput .= '>>> ' . $name . PHP_EOL;
+            $fullOutput .= '$ ' . $command . PHP_EOL;
+            $commandOutput = [];
+            $exitCode      = 0;
+            exec($command . ' 2>&1', $commandOutput, $exitCode);
+            $fullOutput .= implode(PHP_EOL, $commandOutput) . PHP_EOL;
+            $fullOutput .= 'Exit Code: ' . $exitCode . PHP_EOL . PHP_EOL;
+
+            if ($exitCode !== 0) {
+                file_put_contents(self::REQUIREMENTS_LOG_FILE, $fullOutput);
+
+                return [false, $fullOutput, 'Requirement task failed: ' . $name];
+            }
+        }
+
+        file_put_contents(self::REQUIREMENTS_LOG_FILE, $fullOutput);
+        file_put_contents(self::REQUIREMENTS_DONE_FILE, date(DATE_ATOM));
+
+        return [true, $fullOutput, null];
+    }
+
+    private function loadRequirementCommands(): array
+    {
+        if (! is_file(self::REQUIREMENTS_FILE)) {
+            return [];
+        }
+
+        $lines = file(self::REQUIREMENTS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines === false) {
+            return [];
+        }
+
+        $commands = [];
+        foreach ($lines as $line) {
+            $command = trim($line);
+            if ($command === '' || str_starts_with($command, '#')) {
+                continue;
+            }
+
+            $commands[] = $command;
+        }
+
+        return $commands;
+    }
+
+    private function isAllowedRequirementCommand(string $command): bool
+    {
+        $command = ltrim($command);
+
+        return str_starts_with($command, 'composer ');
     }
 }

@@ -39,3 +39,13 @@ rm writable/installer/installed.lock
 Then open:
 
 `/install`
+
+## Requirements Tasks On Complete Screen
+
+Installer reads tasks from:
+
+`requirements.txt`
+
+On `/install/complete`, it runs commands one by one (one line at a time) and shows output on the screen.
+
+You can rerun tasks from the same complete screen button.

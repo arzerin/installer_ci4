@@ -14,5 +14,5 @@ $routes->group('install', static function (RouteCollection $routes): void {
     $routes->match(['get', 'post'], 'app', 'Installer::app');
     $routes->match(['get', 'post'], 'migrate', 'Installer::migrate');
     $routes->match(['get', 'post'], 'cleanup', 'Installer::cleanup');
-    $routes->get('complete', 'Installer::complete');
+    $routes->match(['get', 'post'], 'complete', 'Installer::complete');
 });
